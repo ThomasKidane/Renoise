@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Separation Algorithm Tester</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0d0d12;
+      --bg-secondary: #14141c;
+      --bg-tertiary: #1a1a26;
+      --bg-card: #1e1e2a;
+      --accent-cyan: #00e5cc;
+      --accent-magenta: #e930ff;
+      --accent-orange: #ff6b35;
+      --accent-blue: #4d7cff;
+      --text-primary: #f0f0f5;
+      --text-secondary: #8888a0;
+      --text-muted: #555566;
+      --border: #2a2a3a;
+      --success: #00d68f;
+      --warning: #ffaa00;
+      --error: #ff4757;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .bg-gradient {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: 
+        radial-gradient(ellipse 80% 50% at 20% 20%, rgba(0, 229, 204, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(233, 48, 255, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse 50% 30% at 50% 50%, rgba(77, 124, 255, 0.04) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      font-weight: 300;
+    }
+
+    .upload-section {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+
+    .upload-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      transition: all 0.3s ease;
+    }
+
+    .upload-card:hover {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 30px rgba(0, 229, 204, 0.1);
+    }
+
+    .upload-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .upload-card h3 .icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+    }
+
+    .upload-card.input h3 .icon { background: linear-gradient(135deg, var(--accent-cyan), #00b3a0); }
+    .upload-card.reference h3 .icon { background: linear-gradient(135deg, var(--accent-magenta), #b020cc); }
+
+    .upload-card p {
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: var(--bg-tertiary);
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 229, 204, 0.05);
+    }
+
+    .drop-zone.has-file {
+      border-color: var(--success);
+      background: rgba(0, 214, 143, 0.05);
+    }
+
+    .drop-zone input {
+      display: none;
+    }
+
+    .drop-zone .icon {
+      font-size: 2rem;
+      margin-bottom: 12px;
+    }
+
+    .drop-zone .text {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .drop-zone .filename {
+      color: var(--success);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      margin-top: 8px;
+      word-break: break-all;
+    }
+
+    .waveform-container {
+      margin-top: 16px;
+      height: 60px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      overflow: hidden;
+      display: none;
+    }
+
+    .waveform-container.visible {
+      display: block;
+    }
+
+    .waveform-container canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .algorithms-section {
+      margin-bottom: 40px;
+    }
+
+    .algorithms-section h2 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .algorithms-section h2::before {
+      content: '';
+      width: 4px;
+      height: 24px;
+      background: linear-gradient(180deg, var(--accent-cyan), var(--accent-magenta));
+      border-radius: 2px;
+    }
+
+    .algorithm-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .algorithm-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .algorithm-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+      transform: scaleX(0);
+      transition: transform 0.3s ease;
+    }
+
+    .algorithm-card:hover::before,
+    .algorithm-card.selected::before {
+      transform: scaleX(1);
+    }
+
+    .algorithm-card.selected {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 229, 204, 0.05);
+    }
+
+    .algorithm-card h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .algorithm-card .desc {
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    .algorithm-card .badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-size: 0.65rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge.fast { background: var(--success); color: #000; }
+    .badge.accurate { background: var(--accent-blue); color: #fff; }
+    .badge.balanced { background: var(--warning); color: #000; }
+
+    .params-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 40px;
+      display: none;
+    }
+
+    .params-section.visible {
+      display: block;
+    }
+
+    .params-section h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    .params-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+    }
+
+    .param-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .param-group label {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .param-group input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: var(--bg-tertiary);
+      border-radius: 3px;
+      outline: none;
+    }
+
+    .param-group input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      background: var(--accent-cyan);
+      border-radius: 50%;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .param-group input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    .param-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--accent-cyan);
+    }
+
+    .process-btn {
+      width: 100%;
+      padding: 18px 32px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      font-family: 'Outfit', sans-serif;
+      background: linear-gradient(135deg, var(--accent-cyan), #00b3a0);
+      color: #000;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-bottom: 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .process-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(0, 229, 204, 0.3);
+    }
+
+    .process-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .process-btn.processing {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .results-section {
+      display: none;
+    }
+
+    .results-section.visible {
+      display: block;
+    }
+
+    .results-section h2 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .results-section h2::before {
+      content: '';
+      width: 4px;
+      height: 24px;
+      background: linear-gradient(180deg, var(--accent-orange), var(--accent-magenta));
+      border-radius: 2px;
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 24px;
+    }
+
+    .result-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      transition: all 0.3s ease;
+    }
+
+    .result-card:hover {
+      border-color: var(--accent-orange);
+    }
+
+    .result-card h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .result-card .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .metric {
+      background: var(--bg-tertiary);
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .metric .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--accent-cyan);
+    }
+
+    .metric .label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .result-waveform {
+      height: 80px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .result-waveform canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .audio-controls {
+      display: flex;
+      gap: 12px;
+    }
+
+    .audio-controls button {
+      flex: 1;
+      padding: 12px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .audio-controls button:hover {
+      background: var(--bg-secondary);
+      border-color: var(--accent-cyan);
+    }
+
+    .audio-controls button.playing {
+      background: var(--accent-cyan);
+      color: #000;
+      border-color: var(--accent-cyan);
+    }
+
+    .comparison-section {
+      margin-top: 40px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    .comparison-section h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    .comparison-chart {
+      height: 200px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-around;
+      padding: 20px;
+      gap: 20px;
+    }
+
+    .chart-bar {
+      flex: 1;
+      max-width: 100px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chart-bar .bar {
+      width: 100%;
+      background: linear-gradient(180deg, var(--accent-cyan), var(--accent-magenta));
+      border-radius: 4px 4px 0 0;
+      transition: height 0.5s ease;
+    }
+
+    .chart-bar .name {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(13, 13, 18, 0.9);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .loading-overlay.visible {
+      display: flex;
+    }
+
+    .loading-content {
+      text-align: center;
+    }
+
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent-cyan);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .upload-section {
+        grid-template-columns: 1fr;
+      }
+      
+      h1 {
+        font-size: 1.8rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-gradient"></div>
+  
+  <div class="container">
+    <header>
+      <h1>Audio Separation Lab</h1>
+      <p class="subtitle">Compare different algorithms for removing background audio from voice recordings</p>
+    </header>
+
+    <section class="upload-section">
+      <div class="upload-card input">
+        <h3><span class="icon">🎤</span> Raw Input (Microphone)</h3>
+        <p>Upload the microphone recording containing voice + background audio</p>
+        <div class="drop-zone" id="inputDropZone">
+          <input type="file" id="inputFile" accept="audio/*">
+          <div class="icon">📁</div>
+          <div class="text">Drop WAV file or click to browse</div>
+          <div class="filename" id="inputFilename"></div>
+        </div>
+        <div class="waveform-container" id="inputWaveform">
+          <canvas></canvas>
+        </div>
+      </div>
+
+      <div class="upload-card reference">
+        <h3><span class="icon">🔊</span> Reference (System Audio)</h3>
+        <p>Upload the reference audio that should be subtracted (music/background)</p>
+        <div class="drop-zone" id="referenceDropZone">
+          <input type="file" id="referenceFile" accept="audio/*">
+          <div class="icon">📁</div>
+          <div class="text">Drop WAV file or click to browse</div>
+          <div class="filename" id="referenceFilename"></div>
+        </div>
+        <div class="waveform-container" id="referenceWaveform">
+          <canvas></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="algorithms-section">
+      <h2>Select Algorithms to Compare</h2>
+      
+      <h3 style="font-size: 0.85rem; color: var(--text-secondary); margin: 20px 0 12px; font-weight: 500;">Classic Adaptive Filters</h3>
+      <div class="algorithm-grid">
+        <div class="algorithm-card selected" data-algo="nlms">
+          <span class="badge fast">Fast</span>
+          <h4>NLMS</h4>
+          <p class="desc">Normalized Least Mean Squares - Classic adaptive filter with good convergence</p>
+        </div>
+        <div class="algorithm-card" data-algo="rls">
+          <span class="badge accurate">Accurate</span>
+          <h4>RLS</h4>
+          <p class="desc">Recursive Least Squares - Faster convergence, better tracking, more computation</p>
+        </div>
+        <div class="algorithm-card" data-algo="griffiths">
+          <span class="badge fast">Fast</span>
+          <h4>Griffiths-Jim</h4>
+          <p class="desc">Generalized sidelobe canceller - robust beamforming approach</p>
+        </div>
+        <div class="algorithm-card" data-algo="kalman">
+          <span class="badge accurate">Accurate</span>
+          <h4>Kalman Filter</h4>
+          <p class="desc">State-space approach with optimal estimation for non-stationary signals</p>
+        </div>
+      </div>
+
+      <h3 style="font-size: 0.85rem; color: var(--text-secondary); margin: 20px 0 12px; font-weight: 500;">Frequency Domain Methods</h3>
+      <div class="algorithm-grid">
+        <div class="algorithm-card" data-algo="spectral">
+          <span class="badge balanced">Balanced</span>
+          <h4>Spectral Subtraction</h4>
+          <p class="desc">Frequency-domain approach - subtracts reference spectrum from input</p>
+        </div>
+        <div class="algorithm-card" data-algo="wiener">
+          <span class="badge accurate">Accurate</span>
+          <h4>Wiener Filter</h4>
+          <p class="desc">Optimal linear filter minimizing mean square error in frequency domain</p>
+        </div>
+        <div class="algorithm-card" data-algo="fdaf">
+          <span class="badge fast">Fast</span>
+          <h4>FDAF</h4>
+          <p class="desc">Frequency Domain Adaptive Filter - efficient block processing</p>
+        </div>
+        <div class="algorithm-card" data-algo="pbfdaf">
+          <span class="badge accurate">Accurate</span>
+          <h4>PBFDAF</h4>
+          <p class="desc">Partitioned Block FDAF - handles long impulse responses efficiently</p>
+        </div>
+      </div>
+
+      <h3 style="font-size: 0.85rem; color: var(--text-secondary); margin: 20px 0 12px; font-weight: 500;">Advanced Methods</h3>
+      <div class="algorithm-grid">
+        <div class="algorithm-card" data-algo="subband">
+          <span class="badge balanced">Balanced</span>
+          <h4>Subband Filter</h4>
+          <p class="desc">Processes signal in multiple frequency bands for better adaptation</p>
+        </div>
+        <div class="algorithm-card" data-algo="apa">
+          <span class="badge accurate">Accurate</span>
+          <h4>APA</h4>
+          <p class="desc">Affine Projection Algorithm - faster convergence than NLMS</p>
+        </div>
+        <div class="algorithm-card" data-algo="ica">
+          <span class="badge accurate">Accurate</span>
+          <h4>ICA (FastICA)</h4>
+          <p class="desc">Independent Component Analysis - blind source separation</p>
+        </div>
+      </div>
+
+      <h3 style="font-size: 0.85rem; color: var(--accent-magenta); margin: 20px 0 12px; font-weight: 500;">🧠 Neural Network / ML-Based</h3>
+      <div class="algorithm-grid">
+        <div class="algorithm-card" data-algo="aec3">
+          <span class="badge" style="background: #ff6b35; color: #fff;">WebRTC</span>
+          <h4>WebRTC AEC3 (Real)</h4>
+          <p class="desc">Google's state-of-the-art echo cancellation from WebRTC (requires server)</p>
+        </div>
+        <div class="algorithm-card" data-algo="rnnoise">
+          <span class="badge" style="background: var(--accent-magenta); color: #fff;">Neural</span>
+          <h4>RNNoise (Real WASM)</h4>
+          <p class="desc">Xiph's RNNoise via @jitsi/rnnoise-wasm - production-grade noise suppression</p>
+        </div>
+        <div class="algorithm-card" data-algo="rnnoiseHybrid">
+          <span class="badge" style="background: var(--accent-magenta); color: #fff;">Hybrid</span>
+          <h4>RNNoise + NLMS</h4>
+          <p class="desc">NLMS echo cancellation + RNNoise for residual noise suppression</p>
+        </div>
+        <div class="algorithm-card" data-algo="spectralVAD">
+          <span class="badge balanced">Balanced</span>
+          <h4>Spectral Gate + VAD</h4>
+          <p class="desc">Voice Activity Detection with frequency-domain gating</p>
+        </div>
+        <div class="algorithm-card" data-algo="hpss">
+          <span class="badge accurate">Accurate</span>
+          <h4>HPSS</h4>
+          <p class="desc">Harmonic-Percussive Source Separation - extracts voice harmonics</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="params-section visible" id="paramsSection">
+      <h3>Algorithm Parameters</h3>
+      <div class="params-grid" id="paramsGrid">
+        <!-- Dynamic params will be inserted here -->
+      </div>
+    </section>
+
+    <button class="process-btn" id="processBtn" disabled>
+      🚀 Process & Compare Selected Algorithms
+    </button>
+
+    <section class="results-section" id="resultsSection">
+      <h2>Results</h2>
+      <div class="results-grid" id="resultsGrid">
+        <!-- Results will be inserted here -->
+      </div>
+
+      <div class="comparison-section">
+        <h3>Algorithm Comparison (Suppression Score)</h3>
+        <div class="comparison-chart" id="comparisonChart">
+          <!-- Chart bars will be inserted here -->
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-content">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loadingText">Processing audio...</div>
+    </div>
+  </div>
+
+  <script src="algorithms.js"></script>
+  <script src="advanced.js"></script>
+  <script src="deep-learning.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+

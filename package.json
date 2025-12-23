@@ -1,0 +1,42 @@
+{
+  "name": "wispr-audio-separator",
+  "version": "1.0.0",
+  "description": "Virtual microphone that removes system audio from mic input for clean voice capture",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron .",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@jitsi/rnnoise-wasm": "^0.2.1",
+    "@shiguredo/rnnoise-wasm": "^2025.1.5",
+    "menubar": "^9.4.0",
+    "naudiodon2": "^2.5.0",
+    "node-addon-api": "^8.5.0",
+    "node-gyp-build": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "electron-vite": "^2.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10"
+  },
+  "build": {
+    "appId": "com.wispr.audio-separator",
+    "productName": "Wispr Audio Separator",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "resources/icon.icns"
+    }
+  }
+}
