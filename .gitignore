@@ -9,5 +9,21 @@ npm-debug.log*
 .vscode/
 *.tsbuildinfo
 
+# Recordings (large audio files)
+recordings/*.wav
+recordings/samples/
+recordings/demucs_output/
+
+# Python
+scripts/venv/
+scripts/__pycache__/
+*.pyc
+
+# Temp files
+temp/
+
+# Compare tool
+compare/
+
 
 

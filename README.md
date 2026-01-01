@@ -1,194 +1,110 @@
-# Wispr Audio Separator
+# Renoise 🎤
 
-A macOS menubar application that creates a virtual microphone providing clean, voice-only audio by removing system audio (music, videos, etc.) from your microphone input using adaptive filtering.
+**Real-time voice isolation for voice-first computing.**
 
-![Wispr Audio Separator](https://img.shields.io/badge/platform-macOS-blue) ![Electron](https://img.shields.io/badge/electron-28.x-brightgreen) ![License](https://img.shields.io/badge/license-MIT-green)
+Renoise removes system audio (music, calls, podcasts) from your microphone input in real-time, so voice assistants like [Wispr](https://wispr.ai) only hear *your voice*.
 
-## 🎯 The Problem
+## The Problem
 
-Voice-to-text tools like Wispr Flow struggle when there's music or audio playing from your computer. The audio bleeds into your microphone and confuses the transcription.
+When you use voice dictation with speakers playing audio:
+- Your mic picks up both your voice AND the system audio
+- Voice assistants transcribe the music/podcast along with your speech
+- The transcription becomes unusable
 
-## 💡 The Solution
+## The Solution
 
-This app intercepts your microphone signal, uses the system audio as a reference, and applies an **NLMS (Normalized Least Mean Squares) adaptive filter** to subtract the known audio from your mic input. The result is a clean voice signal sent to a virtual microphone that Wispr Flow (or any other app) can use.
+Renoise uses a **cascaded deep learning pipeline**:
+
+1. **DTLN-AEC** (Deep Learning Acoustic Echo Cancellation) - Removes the bulk of the reference audio using a neural network trained on the Microsoft AEC Challenge
+2. **Spectral Cleanup** - Removes any residual artifacts through adaptive spectral subtraction
+
+### How It Works
 
 ```
-Real Microphone ──────────────────┐
-                                  ▼
-                    ┌──────────────────────────┐
-System Audio ──────►│   Adaptive Filter (NLMS)  │──► Virtual Microphone ──► Wispr Flow
-(via BlackHole)    └──────────────────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Microphone │────▶│   DTLN-AEC  │────▶│  Spectral   │────▶ Clean Voice
+│   (voice +  │     │  (removes   │     │  Cleanup    │
+│   echo)     │     │   echo)     │     │             │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           ▲
+                           │
+                    ┌──────┴──────┐
+                    │  Reference  │
+                    │  (system    │
+                    │   audio)    │
+                    └─────────────┘
 ```
 
-## 🔧 Prerequisites
+## Features
 
-### 1. Install BlackHole (Virtual Audio Driver)
+- **Real-time processing** - DTLN-AEC runs live on your audio
+- **High-quality recordings** - Cascaded pipeline for best quality
+- **Works with any audio** - Music, podcasts, calls, videos
+- **macOS native** - Uses BlackHole for system audio capture
+
+## Requirements
+
+- macOS
+- [BlackHole](https://existential.audio/blackhole/) (2ch for reference, 16ch for output)
+- Node.js 18+
+- Python 3.11+ with TensorFlow
+
+## Setup
 
 ```bash
-brew install blackhole-2ch
-```
-
-For best results, also install the 16-channel version:
-```bash
-brew install blackhole-16ch
-```
-
-### 2. Configure Audio MIDI Setup
-
-1. Open **Audio MIDI Setup** (search in Spotlight)
-2. Click the **+** button at the bottom left
-3. Select **Create Multi-Output Device**
-4. Check both your speakers AND **BlackHole 2ch**
-5. Set this Multi-Output Device as your system output in System Preferences → Sound
-
-This routes all system audio to both your speakers AND BlackHole for capture.
-
-### 3. Audio Routing Setup
-
-| Signal | Device |
-|--------|--------|
-| **Microphone Input** | Your real microphone (Built-in, USB, etc.) |
-| **Reference Input** | BlackHole 2ch (receives system audio copy) |
-| **Output** | BlackHole 16ch (clean voice output) |
-| **Wispr Flow Input** | BlackHole 16ch |
-
-## 🚀 Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/wispr-audio-separator.git
-cd wispr-audio-separator
+# Clone
+git clone https://github.com/ThomasKidane/Renoise.git
+cd Renoise
 
 # Install dependencies
 npm install
 
-# Start development mode
+# Set up DTLN-AEC
+cd DTRL-AEC/DTLN-aec
+python3 -m venv venv
+source venv/bin/activate
+pip install tensorflow soundfile numpy scipy
+
+# Run
+cd ../..
 npm run dev
-
-# Or build for production
-npm run build
 ```
 
-## 📖 Usage
+## Audio Routing (macOS)
 
-1. **Launch the app** - It will appear in your menubar
-2. **Click the tray icon** to open the configuration window
-3. **Select your devices**:
-   - **Microphone**: Your real microphone
-   - **Reference**: BlackHole 2ch (system audio loopback)
-   - **Output**: BlackHole 16ch (or another virtual device)
-4. **Click the power button** to start processing
-5. **Configure Wispr Flow** to use "BlackHole 16ch" as its microphone input
+1. Install BlackHole 2ch and 16ch
+2. Create a Multi-Output Device (System Preferences → Audio MIDI Setup):
+   - Add your speakers + BlackHole 2ch
+3. Set system output to the Multi-Output Device
+4. In Renoise:
+   - Input: Your microphone
+   - Reference: BlackHole 2ch (captures system audio)
+   - Output: BlackHole 16ch (clean voice output)
 
-### Parameter Tuning
+## Tech Stack
 
-| Parameter | Range | Description |
-|-----------|-------|-------------|
-| **Input Gain** | 0-2x | Adjust microphone sensitivity |
-| **Reference Gain** | 0-2x | Adjust system audio reference level |
-| **Step Size (μ)** | 0.01-1.0 | Filter learning rate. Higher = faster adaptation but less stable |
-| **Delay** | 0-100ms | Compensate for speaker-to-mic propagation delay |
+- **Electron** - Desktop app
+- **DTLN-AEC** - Deep learning echo cancellation (TensorFlow Lite)
+- **naudiodon2** - Low-latency audio I/O
+- **TypeScript/React** - UI
 
-### Tips for Best Results
+## Why I Built This
 
-- **Start with default settings** and adjust if needed
-- **Increase Step Size** if the filter isn't adapting fast enough to music changes
-- **Decrease Step Size** if you hear artifacts or the filter is unstable
-- **Adjust Delay** if you notice the filter isn't canceling audio well (try 10-30ms)
-- **Reset Filter** if it gets stuck or produces strange output
+I use [Wispr](https://wispr.ai) for voice dictation, but I also listen to music while working. The problem: Wispr would transcribe my music along with my voice.
 
-## 🏗️ Architecture
+I dedicated a mouse button to Wispr (keyboard defeats the purpose of voice input!) and built Renoise to solve the echo problem.
 
-### Core Technologies
+## Future Ideas
 
-- **Electron** - Cross-platform desktop framework
-- **naudiodon2** - Node.js bindings for PortAudio (low-level audio I/O)
-- **React** - UI framework
-- **TypeScript** - Type safety
+- [ ] Noise gate based on voice activity detection
+- [ ] Automatic gain control
+- [ ] Support for more audio backends
+- [ ] Windows/Linux support
 
-### NLMS Adaptive Filter
+## License
 
-The heart of the system is the Normalized Least Mean Squares algorithm:
+MIT
 
-```typescript
-// For each sample:
-y = weights · referenceBuffer  // Estimate of leaked audio
-e = micInput - y               // Error = voice estimate
-weights += (μ * e / ||ref||²) * referenceBuffer  // Update weights
-output = e                     // Clean voice signal
-```
+---
 
-The filter continuously adapts to estimate how system audio appears in the microphone (after going through speakers and room acoustics) and subtracts it.
-
-### File Structure
-
-```
-src/
-├── main/
-│   ├── index.ts              # Electron main process
-│   ├── audio-processor.ts    # Audio capture and processing
-│   ├── nlms-filter.ts        # NLMS implementation
-│   └── device-manager.ts     # Audio device enumeration
-├── renderer/
-│   ├── App.tsx               # React UI
-│   ├── styles.css            # Styling
-│   └── components/
-│       ├── DeviceSelector.tsx
-│       ├── LevelMeter.tsx
-│       ├── ParameterSlider.tsx
-│       └── StatusIndicator.tsx
-└── preload/
-    └── index.ts              # Electron preload script
-```
-
-## 🐛 Troubleshooting
-
-### "No audio devices found"
-- Make sure BlackHole is installed correctly
-- Try restarting the app or your computer
-
-### "Filter not canceling audio"
-- Ensure your Multi-Output Device is set as system output
-- Check that BlackHole 2ch is selected as the reference device
-- Try adjusting the delay parameter (10-30ms is typical)
-- Make sure system audio is actually playing
-
-### "Voice sounds distorted"
-- Reduce the Step Size parameter
-- Check input/reference gain levels
-- Click "Reset Filter" to start fresh
-
-### "High CPU usage"
-- This is normal during active processing
-- The app uses real-time audio processing which requires CPU
-
-## 📝 Development
-
-```bash
-# Run in development mode with hot reload
-npm run dev
-
-# Build for production
-npm run build
-
-# Package for distribution
-npm run package
-```
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
-## 🙏 Acknowledgments
-
-- [BlackHole](https://github.com/ExistentialAudio/BlackHole) - Virtual audio driver
-- [naudiodon2](https://www.npmjs.com/package/naudiodon2) - Node.js audio I/O
-- [Electron](https://www.electronjs.org/) - Desktop app framework
-
-## 📚 References
-
-- [NLMS Algorithm (Wikipedia)](https://en.wikipedia.org/wiki/Least_mean_squares_filter#Normalised_least_mean_squares_filter_(NLMS))
-- [Acoustic Echo Cancellation](https://en.wikipedia.org/wiki/Echo_cancellation)
-
-
-
+*Built with ❤️ for voice-first computing*

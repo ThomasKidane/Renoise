@@ -16,12 +16,15 @@
     "menubar": "^9.4.0",
     "naudiodon2": "^2.5.0",
     "node-addon-api": "^8.5.0",
-    "node-gyp-build": "^4.8.4"
+    "node-gyp-build": "^4.8.4",
+    "onnxruntime-node": "^1.23.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.2.1",
     "electron": "^28.1.0",
     "electron-builder": "^24.9.1",

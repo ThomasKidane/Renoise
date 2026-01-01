@@ -9,6 +9,7 @@ export default defineConfig({
         external: [
           'naudiodon2',
           'electron',
+          'ws',
           /\.node$/  // Exclude all .node native modules
         ]
       }

@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+export interface Recording {
+  id: string;
+  timestamp: string;
+  rawInput: string;
+  processed: string;
+  reference: string;
+}
+
 export interface ElectronAPI {
   getDevices: () => Promise<any>;
   getConfig: () => Promise<any>;
@@ -18,6 +26,9 @@ export interface ElectronAPI {
   startRecording: () => Promise<any>;
   stopRecording: () => Promise<any>;
   getRecordingStatus: () => Promise<any>;
+  getRecordings: () => Promise<Recording[]>;
+  deleteRecording: (id: string) => Promise<any>;
+  getAudioFileUrl: (filePath: string) => Promise<string>;
   hideWindow: () => Promise<any>;
   onLevelsUpdate: (callback: (levels: any) => void) => void;
   onProcessingStatus: (callback: (status: any) => void) => void;
@@ -42,6 +53,9 @@ const electronAPI: ElectronAPI = {
   startRecording: () => ipcRenderer.invoke('start-recording'),
   stopRecording: () => ipcRenderer.invoke('stop-recording'),
   getRecordingStatus: () => ipcRenderer.invoke('get-recording-status'),
+  getRecordings: () => ipcRenderer.invoke('get-recordings'),
+  deleteRecording: (id) => ipcRenderer.invoke('delete-recording', id),
+  getAudioFileUrl: (filePath) => ipcRenderer.invoke('get-audio-file-url', filePath),
   hideWindow: () => ipcRenderer.invoke('hide-window'),
   onLevelsUpdate: (callback) => ipcRenderer.on('levels-update', (_event, levels) => callback(levels)),
   onProcessingStatus: (callback) => ipcRenderer.on('processing-status', (_event, status) => callback(status)),

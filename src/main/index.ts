@@ -1,7 +1,82 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, systemPreferences, shell, protocol, net } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
+import { pathToFileURL } from 'url';
 import { getSpeexProcessor, SpeexProcessor } from './speex-processor';
 import { getDeviceManager, DeviceManager } from './device-manager';
+
+interface Recording {
+  id: string;
+  timestamp: string;
+  date: string;
+  rawInput: string;
+  processed: string;  // DTLN output (live)
+  reference: string;
+  demucs?: string; // Demucs output (high quality vocal extraction)
+}
+
+function getRecordingsDir(): string {
+  return path.join(process.cwd(), 'recordings');
+}
+
+function listRecordings(): Recording[] {
+  const recordingsDir = getRecordingsDir();
+  if (!fs.existsSync(recordingsDir)) {
+    return [];
+  }
+
+  const files = fs.readdirSync(recordingsDir);
+  const rawInputFiles = files.filter(f => f.startsWith('raw_input_') && f.endsWith('.wav'));
+  
+  const recordings: Recording[] = [];
+  
+  for (const rawFile of rawInputFiles) {
+    const timestamp = rawFile.replace('raw_input_', '').replace('.wav', '');
+    const processedFile = `dtln_output_${timestamp}.wav`;
+    const referenceFile = `reference_${timestamp}.wav`;
+    const demucsFile = `demucs_output_${timestamp}.wav`;
+    
+    if (files.includes(processedFile)) {
+      // Parse the timestamp for display
+      const dateStr = timestamp.replace(/T/, ' ').replace(/-/g, ':').split('.')[0];
+      
+      recordings.push({
+        id: timestamp,
+        timestamp,
+        date: dateStr,
+        rawInput: path.join(recordingsDir, rawFile),
+        processed: path.join(recordingsDir, processedFile),
+        reference: files.includes(referenceFile) ? path.join(recordingsDir, referenceFile) : '',
+        demucs: files.includes(demucsFile) ? path.join(recordingsDir, demucsFile) : undefined
+      });
+    }
+  }
+  
+  // Sort by timestamp descending (newest first)
+  recordings.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  
+  return recordings;
+}
+
+function deleteRecording(id: string): boolean {
+  const recordingsDir = getRecordingsDir();
+  const filesToDelete = [
+    `raw_input_${id}.wav`,
+    `dtln_output_${id}.wav`,
+    `reference_${id}.wav`,
+    `demucs_output_${id}.wav`,
+    `sepformer_output_${id}.wav`  // Also clean up old sepformer files
+  ];
+  
+  for (const file of filesToDelete) {
+    const filePath = path.join(recordingsDir, file);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+  
+  return true;
+}
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -29,14 +104,17 @@ async function checkMicrophonePermission(): Promise<boolean> {
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 380,
-    height: 520,
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     show: false,
     frame: true,
     resizable: true,
     skipTaskbar: false,
     alwaysOnTop: false,
-    backgroundColor: '#0a0a0f',
+    backgroundColor: '#ffffff',
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -188,10 +266,41 @@ function setupIpcHandlers(): void {
     return { success: true, files: result };
   });
   ipcMain.handle('get-recording-status', () => ({ isRecording: audioProcessor.getIsRecording() }));
+  
+  ipcMain.handle('get-recordings', () => {
+    return listRecordings();
+  });
+  
+  ipcMain.handle('delete-recording', (_event, id: string) => {
+    deleteRecording(id);
+    return { success: true };
+  });
+  
+  ipcMain.handle('get-audio-file-url', (_event, filePath: string) => {
+    // Convert file path to a URL that works with the custom protocol
+    return `media-loader://${encodeURIComponent(filePath)}`;
+  });
+  
+  ipcMain.handle('open-recordings-folder', () => {
+    shell.openPath(getRecordingsDir());
+    return { success: true };
+  });
+  
   ipcMain.handle('hide-window', () => { mainWindow?.hide(); return { success: true }; });
 }
 
+// Register custom protocol for serving local audio files
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'media-loader', privileges: { secure: true, supportFetchAPI: true, stream: true } }
+]);
+
 app.whenReady().then(() => {
+  // Register the protocol handler
+  protocol.handle('media-loader', (request) => {
+    const filePath = decodeURIComponent(request.url.replace('media-loader://', ''));
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+
   deviceManager = getDeviceManager();
   audioProcessor = getSpeexProcessor();
 

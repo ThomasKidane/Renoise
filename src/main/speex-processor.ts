@@ -1,16 +1,16 @@
 /**
- * SpeexDSP-based Audio Processor with Echo Cancellation
- * Fixed reference sampling with proper ring buffer synchronization
- * Also runs AEC3 post-processing on recordings for comparison
+ * Audio Processor with Deep Learning Echo Cancellation
+ * - Live output: DTLN-AEC for real-time processing
+ * - Recordings: Saved for SepFormer post-processing (higher quality)
  */
 
 import * as naudiodon from 'naudiodon2';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { DeviceManager, getDeviceManager } from './device-manager';
-import { SpeexAEC } from './speex-aec';
+import { DTLNProcessor, getDTLNProcessor } from './dtln-processor';
 
 export interface SpeexProcessorConfig {
   sampleRate: number;
@@ -51,7 +51,6 @@ class RingBuffer {
       if (this.available < this.capacity) {
         this.available++;
       } else {
-        // Buffer overflow - advance read index
         this.readIndex = (this.readIndex + 1) % this.capacity;
       }
     }
@@ -67,22 +66,8 @@ class RingBuffer {
       this.available--;
     }
     
-    // Fill remaining with zeros if not enough samples
     for (let i = toRead; i < count; i++) {
       result[i] = 0;
-    }
-    
-    return result;
-  }
-
-  peek(count: number): Float32Array {
-    const result = new Float32Array(count);
-    const toPeek = Math.min(count, this.available);
-    let idx = this.readIndex;
-    
-    for (let i = 0; i < toPeek; i++) {
-      result[i] = this.buffer[idx];
-      idx = (idx + 1) % this.capacity;
     }
     
     return result;
@@ -100,9 +85,9 @@ class RingBuffer {
 }
 
 const DEFAULT_CONFIG: SpeexProcessorConfig = {
-  sampleRate: 48000,  // Higher sample rate for better quality
+  sampleRate: 48000,
   frameSize: 480,     // 10ms at 48kHz
-  filterLength: 4800, // 100ms filter length
+  filterLength: 4800,
   inputDeviceId: null,
   referenceDeviceId: null,
   outputDeviceId: null,
@@ -119,9 +104,9 @@ export class SpeexProcessor extends EventEmitter {
   private referenceStream: any = null;
   private outputStream: any = null;
   
-  private aec: SpeexAEC;
+  private dtln: DTLNProcessor;
+  private dtlnReady: boolean = false;
   
-  // Ring buffers for proper synchronization
   private inputBuffer: RingBuffer;
   private referenceBuffer: RingBuffer;
   
@@ -134,7 +119,6 @@ export class SpeexProcessor extends EventEmitter {
   private processedOutputRecording: Float32Array[] = [];
   private referenceRecording: Float32Array[] = [];
   
-  // Processing timer for consistent frame rate
   private processTimer: NodeJS.Timeout | null = null;
 
   constructor(config: Partial<SpeexProcessorConfig> = {}) {
@@ -142,18 +126,10 @@ export class SpeexProcessor extends EventEmitter {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.deviceManager = getDeviceManager();
     
-    this.aec = new SpeexAEC({
-      frameSize: this.config.frameSize,
-      sampleRate: this.config.sampleRate,
-      filterLength: this.config.filterLength
-    });
+    this.dtln = getDTLNProcessor();
     
-    if (!this.aec.isNativeAvailable()) {
-      console.warn('Native SpeexAEC not available - echo cancellation disabled');
-    }
-    
-    // Buffer size: 100ms worth of audio (small buffer to minimize latency)
-    const bufferSize = Math.floor(this.config.sampleRate * 0.1);
+    // Buffer size: 200ms worth of audio
+    const bufferSize = Math.floor(this.config.sampleRate * 0.2);
     this.inputBuffer = new RingBuffer(bufferSize);
     this.referenceBuffer = new RingBuffer(bufferSize);
   }
@@ -161,27 +137,37 @@ export class SpeexProcessor extends EventEmitter {
   async start(): Promise<void> {
     if (this.isRunning) return;
 
-    console.log('Starting SpeexProcessor...');
+    console.log('Starting DTLN Audio Processor...');
     console.log(`Sample rate: ${this.config.sampleRate}Hz, Frame size: ${this.config.frameSize}`);
     
     try {
+      // Initialize DTLN first
+      console.log('Initializing DTLN deep learning model...');
+      try {
+        await this.dtln.initialize();
+        this.dtlnReady = true;
+        console.log('DTLN model ready!');
+      } catch (e) {
+        console.warn('DTLN initialization failed, will use passthrough mode:', e);
+        this.dtlnReady = false;
+      }
+      
       await this.startStreams();
       this.isRunning = true;
       
-      // Process frames frequently to keep up with real-time audio
-      // Use 5ms interval to ensure we drain buffers fast enough
+      // Process frames at 5ms intervals
       this.processTimer = setInterval(() => this.processFrame(), 5);
       
-      console.log('SpeexProcessor started successfully');
+      console.log('DTLN Audio Processor started successfully');
     } catch (error) {
-      console.error('Failed to start SpeexProcessor:', error);
+      console.error('Failed to start processor:', error);
       this.stop();
       throw error;
     }
   }
 
   stop(): void {
-    console.log('Stopping SpeexProcessor...');
+    console.log('Stopping DTLN Audio Processor...');
     this.isRunning = false;
     
     if (this.processTimer) {
@@ -202,11 +188,11 @@ export class SpeexProcessor extends EventEmitter {
       this.outputStream = null;
     }
     
-    this.aec.reset();
+    this.dtln.reset();
     this.inputBuffer.clear();
     this.referenceBuffer.clear();
     
-    console.log('SpeexProcessor stopped');
+    console.log('DTLN Audio Processor stopped');
   }
 
   private async startStreams(): Promise<void> {
@@ -236,7 +222,7 @@ export class SpeexProcessor extends EventEmitter {
     if (referenceDevice) console.log(`Reference: ${referenceDevice.name} (ID: ${referenceDevice.id})`);
     if (outputDevice) console.log(`Output: ${outputDevice.name} (ID: ${outputDevice.id})`);
 
-    // Input stream (microphone) - use higher buffer for stability
+    // Input stream (microphone)
     this.inputStream = new naudiodon.AudioIO({
       inOptions: {
         channelCount: 1,
@@ -244,7 +230,7 @@ export class SpeexProcessor extends EventEmitter {
         sampleRate: this.config.sampleRate,
         deviceId: inputDevice.id,
         closeOnError: false,
-        highwaterMark: this.config.frameSize * 4 * 4  // 4 frames buffer
+        highwaterMark: this.config.frameSize * 4 * 4
       }
     });
 
@@ -255,7 +241,7 @@ export class SpeexProcessor extends EventEmitter {
     });
     this.inputStream.start();
 
-    // Reference stream (system audio) - same buffer settings
+    // Reference stream (system audio)
     if (referenceDevice) {
       this.referenceStream = new naudiodon.AudioIO({
         inOptions: {
@@ -321,23 +307,28 @@ export class SpeexProcessor extends EventEmitter {
     if (!this.isRunning) return;
     
     const frameSize = this.config.frameSize;
-    
-    // Process ALL available frames to keep up with input rate
     let framesProcessed = 0;
-    const maxFramesPerTick = 50; // Limit to prevent blocking
+    const maxFramesPerTick = 50;
     
     while (this.inputBuffer.getAvailable() >= frameSize && framesProcessed < maxFramesPerTick) {
-      // Read input frame
       const inputFrame = this.inputBuffer.read(frameSize);
-      
-      // Read reference frame (use whatever is available, pad with zeros if needed)
       const referenceFrame = this.referenceBuffer.read(frameSize);
       
       const inputRMS = this.calculateRMS(inputFrame);
       const refRMS = this.calculateRMS(referenceFrame);
       
-      // Process through AEC
-      const output = this.aec.process(inputFrame, referenceFrame);
+      // Process through DTLN for live output
+      let output: Float32Array | null;
+      if (this.dtlnReady && this.dtln.isReady()) {
+        output = this.dtln.process(inputFrame, referenceFrame);
+      } else {
+        // Fallback: pass through input if DTLN not ready
+        output = inputFrame;
+      }
+      
+      if (!output) {
+        output = new Float32Array(frameSize);
+      }
       
       // Apply output gain
       for (let i = 0; i < output.length; i++) {
@@ -355,7 +346,7 @@ export class SpeexProcessor extends EventEmitter {
       
       this.emit('levels', this.levels);
       
-      // Recording
+      // Recording - save raw input for SepFormer post-processing
       if (this.isRecording) {
         this.rawInputRecording.push(new Float32Array(inputFrame));
         this.processedOutputRecording.push(new Float32Array(output));
@@ -374,10 +365,11 @@ export class SpeexProcessor extends EventEmitter {
       framesProcessed++;
     }
     
-    // Log every ~1 second (100 frames at 10ms each)
+    // Log every ~1 second
     this.levelLogCounter += framesProcessed;
     if (this.levelLogCounter >= 100) {
-      console.log(`Processed ${framesProcessed} frames | Buffers: in=${this.inputBuffer.getAvailable()}, ref=${this.referenceBuffer.getAvailable()}`);
+      const dtlnStatus = this.dtlnReady && this.dtln.isReady() ? 'DTLN active' : 'DTLN initializing';
+      console.log(`[${dtlnStatus}] Frames: ${framesProcessed} | Buffers: in=${this.inputBuffer.getAvailable()}, ref=${this.referenceBuffer.getAvailable()}`);
       this.levelLogCounter = 0;
     }
   }
@@ -406,7 +398,7 @@ export class SpeexProcessor extends EventEmitter {
     console.log('Recording started');
   }
 
-  async stopRecording(): Promise<{ rawInput: string; processedOutput: string; reference: string; aec3Output?: string }> {
+  async stopRecording(): Promise<{ rawInput: string; processedOutput: string; reference: string; dtlnOutput?: string; sepformerOutput?: string }> {
     if (!this.isRecording) return { rawInput: '', processedOutput: '', reference: '' };
     
     this.isRecording = false;
@@ -422,45 +414,101 @@ export class SpeexProcessor extends EventEmitter {
     const rawInputPath = path.join(recordingsDir, `raw_input_${timestamp}.wav`);
     await this.saveWavFile(rawInputPath, this.rawInputRecording);
     
-    const processedOutputPath = path.join(recordingsDir, `processed_output_${timestamp}.wav`);
+    const processedOutputPath = path.join(recordingsDir, `dtln_output_${timestamp}.wav`);
     await this.saveWavFile(processedOutputPath, this.processedOutputRecording);
     
     const referencePath = path.join(recordingsDir, `reference_${timestamp}.wav`);
     await this.saveWavFile(referencePath, this.referenceRecording);
     
-    // Also run AEC3 post-processing for comparison
-    let aec3OutputPath: string | undefined;
-    try {
-      const aec3DemoPath = path.join(process.cwd(), 'vendor', 'aec3', 'build', 'aec3_demo_hq');
-      if (fs.existsSync(aec3DemoPath)) {
-        // Convert to 16-bit PCM for AEC3
-        const rawInput16bit = path.join(recordingsDir, `raw_input_16bit_${timestamp}.wav`);
-        const reference16bit = path.join(recordingsDir, `reference_16bit_${timestamp}.wav`);
-        aec3OutputPath = path.join(recordingsDir, `aec3_output_${timestamp}.wav`);
-        
-        execSync(`ffmpeg -y -i "${rawInputPath}" -acodec pcm_s16le "${rawInput16bit}" 2>/dev/null`);
-        execSync(`ffmpeg -y -i "${referencePath}" -acodec pcm_s16le "${reference16bit}" 2>/dev/null`);
-        
-        // Run AEC3 with mode 7 (ultra aggressive)
-        execSync(`"${aec3DemoPath}" "${reference16bit}" "${rawInput16bit}" "${aec3OutputPath}" 7`, { timeout: 60000 });
-        
-        // Cleanup temp files
-        try {
-          fs.unlinkSync(rawInput16bit);
-          fs.unlinkSync(reference16bit);
-        } catch (e) {}
-        
-        console.log(`AEC3 post-processing complete: ${aec3OutputPath}`);
-      }
-    } catch (e) {
-      console.error('AEC3 post-processing failed:', e);
-    }
+    console.log(`Recordings saved:`);
+    console.log(`  Raw input: ${rawInputPath}`);
+    console.log(`  DTLN output (live): ${processedOutputPath}`);
+    console.log(`  Reference: ${referencePath}`);
+    
+    // Run cascaded processing (DTLN-AEC → Spectral) for high-quality output
+    const cascadedOutputPath = path.join(recordingsDir, `cascaded_output_${timestamp}.wav`);
+    this.runCascadedProcessing(rawInputPath, referencePath, cascadedOutputPath);
     
     this.rawInputRecording = [];
     this.processedOutputRecording = [];
     this.referenceRecording = [];
     
-    return { rawInput: rawInputPath, processedOutput: processedOutputPath, reference: referencePath, aec3Output: aec3OutputPath };
+    return { 
+      rawInput: rawInputPath, 
+      processedOutput: processedOutputPath, 
+      reference: referencePath,
+      dtlnOutput: processedOutputPath,
+      cascadedOutput: cascadedOutputPath
+    };
+  }
+  
+  /**
+   * Run cascaded processing in background (DTLN-AEC → Spectral Cleanup)
+   * This is the best performing approach for reference-based echo removal
+   */
+  private runCascadedProcessing(micPath: string, refPath: string, outputPath: string): void {
+    const scriptsDir = path.join(process.cwd(), 'scripts');
+    const cascadedScript = path.join(scriptsDir, 'cascaded_process.py');
+    
+    // Check if script exists
+    if (!fs.existsSync(cascadedScript)) {
+      console.warn('[Cascaded] Script not found, skipping post-processing');
+      return;
+    }
+    
+    // Try to find Python with dependencies
+    const dtlnVenv = path.join(process.cwd(), 'DTRL-AEC', 'DTLN-aec', 'venv', 'bin', 'python');
+    const pythonPaths = [
+      dtlnVenv,
+      path.join(scriptsDir, 'venv', 'bin', 'python'),
+      'python3',
+      'python'
+    ];
+    
+    let pythonPath = 'python3';
+    for (const p of pythonPaths) {
+      if (p.startsWith('/') && fs.existsSync(p)) {
+        pythonPath = p;
+        break;
+      }
+    }
+    
+    console.log(`[Cascaded] Starting DTLN-AEC → Spectral processing...`);
+    console.log(`[Cascaded] Mic: ${micPath}`);
+    console.log(`[Cascaded] Ref: ${refPath}`);
+    console.log(`[Cascaded] Output: ${outputPath}`);
+    
+    const cascadedProcess = spawn(pythonPath, [
+      cascadedScript,
+      '--mic', micPath,
+      '--ref', refPath,
+      '--output', outputPath
+    ], {
+      cwd: scriptsDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true
+    });
+    
+    cascadedProcess.stdout?.on('data', (data) => {
+      console.log(`[Cascaded] ${data.toString().trim()}`);
+    });
+    
+    cascadedProcess.stderr?.on('data', (data) => {
+      console.error(`[Cascaded Error] ${data.toString().trim()}`);
+    });
+    
+    cascadedProcess.on('exit', (code) => {
+      if (code === 0) {
+        console.log(`[Cascaded] Processing complete: ${outputPath}`);
+        this.emit('cascaded-complete', { output: outputPath });
+      } else {
+        console.error(`[Cascaded] Processing failed with code ${code}`);
+        this.emit('cascaded-error', { code });
+      }
+    });
+    
+    // Don't wait for the process
+    cascadedProcess.unref();
   }
 
   private async saveWavFile(filePath: string, chunks: Float32Array[]): Promise<void> {
