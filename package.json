@@ -1,14 +1,23 @@
 {
-  "name": "wispr-audio-separator",
+  "name": "renoise",
   "version": "1.0.0",
-  "description": "Virtual microphone that removes system audio from mic input for clean voice capture",
+  "description": "AI-powered voice isolation - removes music and system audio from your microphone",
   "main": "out/main/index.js",
+  "author": "Thomas Kidane",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ThomasKidane/Renoise.git"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron .",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "dist": "electron-vite build && electron-builder --mac",
+    "dist:dmg": "electron-vite build && electron-builder --mac dmg",
+    "dist:zip": "electron-vite build && electron-builder --mac zip"
   },
   "dependencies": {
     "@jitsi/rnnoise-wasm": "^0.2.1",
@@ -35,11 +44,62 @@
     "vite": "^5.0.10"
   },
   "build": {
-    "appId": "com.wispr.audio-separator",
-    "productName": "Wispr Audio Separator",
+    "appId": "com.thomaskidane.renoise",
+    "productName": "Renoise",
+    "copyright": "Copyright © 2024 Thomas Kidane",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "scripts/**/*",
+      "DTRL-AEC/**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+    ],
     "mac": {
       "category": "public.app-category.utilities",
-      "icon": "resources/icon.icns"
+      "icon": "resources/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ]
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     }
   }
 }

@@ -10,9 +10,7 @@ npm-debug.log*
 *.tsbuildinfo
 
 # Recordings (large audio files)
-recordings/*.wav
-recordings/samples/
-recordings/demucs_output/
+recordings/
 
 # Python
 scripts/venv/
@@ -25,5 +23,7 @@ temp/
 # Compare tool
 compare/
 
-
+# Build output
+release/
+*.dmg
 

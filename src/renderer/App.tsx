@@ -21,7 +21,12 @@ interface Recording {
   rawInput: string;
   processed: string;
   reference: string;
-  demucs?: string;
+  cascaded?: string;
+  // Debug/intermediate files
+  debugMicVocals?: string;
+  debugRefVocals?: string;
+  debugSeparated?: string;
+  debugEnhanced?: string;
 }
 
 interface ElectronAPI {
@@ -61,9 +66,26 @@ const App: React.FC = () => {
   const [selectedReference, setSelectedReference] = useState<number | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<number | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [recordingDurations, setRecordingDurations] = useState<Record<string, number>>({});
   const [selectedRecording, setSelectedRecording] = useState<Recording | null>(null);
-  const [audioUrls, setAudioUrls] = useState<{ raw: string; processed: string; demucs?: string } | null>(null);
-  const [audioDurations, setAudioDurations] = useState<{ raw: number; processed: number; demucs: number }>({ raw: 0, processed: 0, demucs: 0 });
+  const [audioUrls, setAudioUrls] = useState<{ 
+    raw: string; 
+    processed: string; 
+    cascaded?: string;
+    debugMicVocals?: string;
+    debugRefVocals?: string;
+    debugSeparated?: string;
+    debugEnhanced?: string;
+  } | null>(null);
+  const [audioDurations, setAudioDurations] = useState<{ 
+    raw: number; 
+    processed: number; 
+    cascaded: number;
+    debugMicVocals: number;
+    debugRefVocals: number;
+    debugSeparated: number;
+    debugEnhanced: number;
+  }>({ raw: 0, processed: 0, cascaded: 0, debugMicVocals: 0, debugRefVocals: 0, debugSeparated: 0, debugEnhanced: 0 });
   const [error, setError] = useState<string | null>(null);
 
   const formatDuration = (seconds: number): string => {
@@ -73,14 +95,41 @@ const App: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleAudioLoadedMetadata = (type: 'raw' | 'processed' | 'demucs') => (e: React.SyntheticEvent<HTMLAudioElement>) => {
+  const handleAudioLoadedMetadata = (type: 'raw' | 'processed' | 'cascaded' | 'debugMicVocals' | 'debugRefVocals' | 'debugSeparated' | 'debugEnhanced') => (e: React.SyntheticEvent<HTMLAudioElement>) => {
     const audio = e.currentTarget;
     setAudioDurations(prev => ({ ...prev, [type]: audio.duration }));
   };
 
   const loadRecordings = useCallback(async () => {
     const recs = await window.electronAPI?.getRecordings();
-    if (recs) setRecordings(recs);
+    if (recs) {
+      setRecordings(recs);
+      
+      // Load durations for all recordings
+      const durations: Record<string, number> = {};
+      for (const rec of recs) {
+        try {
+          const url = await window.electronAPI?.getAudioFileUrl(rec.rawInput);
+          if (url) {
+            const audio = new Audio(url);
+            await new Promise<void>((resolve) => {
+              audio.onloadedmetadata = () => {
+                if (isFinite(audio.duration)) {
+                  durations[rec.id] = audio.duration;
+                }
+                resolve();
+              };
+              audio.onerror = () => resolve();
+              // Timeout after 2 seconds
+              setTimeout(resolve, 2000);
+            });
+          }
+        } catch {
+          // Skip if can't load
+        }
+      }
+      setRecordingDurations(durations);
+    }
   }, []);
 
   // Load audio URLs when a recording is selected
@@ -88,24 +137,51 @@ const App: React.FC = () => {
     const loadAudioUrls = async () => {
       if (!selectedRecording || !window.electronAPI) {
         setAudioUrls(null);
-        setAudioDurations({ raw: 0, processed: 0, demucs: 0 });
+        setAudioDurations({ raw: 0, processed: 0, cascaded: 0, debugMicVocals: 0, debugRefVocals: 0, debugSeparated: 0, debugEnhanced: 0 });
         return;
       }
       
       // Reset durations when loading new recording
-      setAudioDurations({ raw: 0, processed: 0, demucs: 0 });
+      setAudioDurations({ raw: 0, processed: 0, cascaded: 0, debugMicVocals: 0, debugRefVocals: 0, debugSeparated: 0, debugEnhanced: 0 });
       
       const [rawUrl, processedUrl] = await Promise.all([
         window.electronAPI.getAudioFileUrl(selectedRecording.rawInput),
         window.electronAPI.getAudioFileUrl(selectedRecording.processed)
       ]);
       
-      let demucsUrl: string | undefined;
-      if (selectedRecording.demucs) {
-        demucsUrl = await window.electronAPI.getAudioFileUrl(selectedRecording.demucs);
+      let cascadedUrl: string | undefined;
+      if (selectedRecording.cascaded) {
+        cascadedUrl = await window.electronAPI.getAudioFileUrl(selectedRecording.cascaded);
       }
       
-      setAudioUrls({ raw: rawUrl, processed: processedUrl, demucs: demucsUrl });
+      // Load debug URLs if available
+      let debugMicVocalsUrl: string | undefined;
+      let debugRefVocalsUrl: string | undefined;
+      let debugSeparatedUrl: string | undefined;
+      let debugEnhancedUrl: string | undefined;
+      
+      if (selectedRecording.debugMicVocals) {
+        debugMicVocalsUrl = await window.electronAPI.getAudioFileUrl(selectedRecording.debugMicVocals);
+      }
+      if (selectedRecording.debugRefVocals) {
+        debugRefVocalsUrl = await window.electronAPI.getAudioFileUrl(selectedRecording.debugRefVocals);
+      }
+      if (selectedRecording.debugSeparated) {
+        debugSeparatedUrl = await window.electronAPI.getAudioFileUrl(selectedRecording.debugSeparated);
+      }
+      if (selectedRecording.debugEnhanced) {
+        debugEnhancedUrl = await window.electronAPI.getAudioFileUrl(selectedRecording.debugEnhanced);
+      }
+      
+      setAudioUrls({ 
+        raw: rawUrl, 
+        processed: processedUrl, 
+        cascaded: cascadedUrl,
+        debugMicVocals: debugMicVocalsUrl,
+        debugRefVocals: debugRefVocalsUrl,
+        debugSeparated: debugSeparatedUrl,
+        debugEnhanced: debugEnhancedUrl
+      });
     };
     
     loadAudioUrls();
@@ -115,8 +191,43 @@ const App: React.FC = () => {
     const api = window.electronAPI;
     if (!api) return;
 
-    api.getDevices().then((devs) => {
+    api.getDevices().then(async (devs) => {
       setDevices({ input: devs.input, output: devs.output });
+      
+      // Auto-select devices if available
+      // Input: Prefer "MacBook Pro Microphone" for your voice
+      const preferredMic = devs.input.find(d => 
+        d.name.toLowerCase().includes('macbook') && d.name.toLowerCase().includes('microphone')
+      ) || devs.input[0];
+      
+      // Reference: Prefer "BlackHole 2ch" for capturing system audio
+      const preferredRef = devs.input.find(d => 
+        d.name.toLowerCase().includes('blackhole') && d.name.toLowerCase().includes('2ch')
+      ) || devs.input.find(d => 
+        d.name.toLowerCase().includes('blackhole')
+      );
+      
+      // Output: Prefer "BlackHole 16ch" for routing cleaned audio to other apps
+      const preferredOutput = devs.output.find(d => 
+        d.name.toLowerCase().includes('blackhole') && d.name.toLowerCase().includes('16ch')
+      ) || devs.output.find(d => 
+        d.name.toLowerCase().includes('blackhole')
+      );
+      
+      if (preferredMic && selectedInput === null) {
+        setSelectedInput(preferredMic.id);
+        await api.setInputDevice(preferredMic.id);
+      }
+      
+      if (preferredRef && selectedReference === null) {
+        setSelectedReference(preferredRef.id);
+        await api.setReferenceDevice(preferredRef.id);
+      }
+      
+      if (preferredOutput && selectedOutput === null) {
+        setSelectedOutput(preferredOutput.id);
+        await api.setOutputDevice(preferredOutput.id);
+      }
     });
 
     api.getStatus().then((status) => setIsRunning(status.isRunning));
@@ -161,7 +272,11 @@ const App: React.FC = () => {
     if (isRecording) {
       await window.electronAPI?.stopRecording();
       setIsRecording(false);
+      // Refresh recordings immediately and again after processing completes
       setTimeout(loadRecordings, 500);
+      setTimeout(loadRecordings, 5000);  // After initial processing
+      setTimeout(loadRecordings, 15000); // After Demucs processing
+      setTimeout(loadRecordings, 30000); // Final check
     } else {
       await window.electronAPI?.startRecording();
       setIsRecording(true);
@@ -267,10 +382,10 @@ const App: React.FC = () => {
             </div>
 
             <div className="tip-card">
-              <h2>Hold <span className="key">⌘</span> <span className="key">Shift</span> → to start processing</h2>
+              <h2>Record and process your voice</h2>
               <p>
-                Renoise uses <strong>DTLN-AEC</strong> for real-time echo cancellation, and <strong>Demucs</strong> (Meta's 
-                state-of-the-art model) for high-quality offline vocal extraction on your recordings.
+                Renoise uses <strong>Demucs + Multi-resolution separation</strong> to remove music AND separate 
+                your voice from the singer. Start recording, then check the Recordings tab for processed audio.
               </p>
               <button className="btn btn-dark" onClick={isRunning ? handleStop : handleStart}>
                 {isRunning ? 'Stop Processing' : 'Start Processing'}
@@ -344,6 +459,12 @@ const App: React.FC = () => {
             <div className="page-header">
               <h1>Recordings</h1>
               <p className="page-subtitle">Compare original and processed audio side by side</p>
+              <button className="btn btn-outline btn-small" onClick={loadRecordings} style={{ marginTop: '8px' }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px', marginRight: '6px' }}>
+                  <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                Refresh
+              </button>
             </div>
 
             <div className="recordings-layout">
@@ -373,6 +494,9 @@ const App: React.FC = () => {
                       <div className="recording-info">
                         <span className="recording-date">{formatDate(rec.date)}</span>
                         <span className="recording-id">ID: {rec.id.slice(0, 16)}...</span>
+                      </div>
+                      <div className="recording-duration">
+                        {formatDuration(recordingDurations[rec.id] || 0)}
                       </div>
                       <button 
                         className="delete-btn"
@@ -405,6 +529,7 @@ const App: React.FC = () => {
                         </div>
                         <audio 
                           controls 
+                          preload="auto"
                           src={audioUrls?.raw || ''} 
                           key={`raw-${selectedRecording.id}`}
                           onLoadedMetadata={handleAudioLoadedMetadata('raw')}
@@ -414,43 +539,122 @@ const App: React.FC = () => {
                       <div className="audio-track">
                         <div className="track-header">
                           <span className="track-badge processed">B</span>
-                          <span className="track-label">DTLN (Live Processing)</span>
+                          <span className="track-label">Pass-through (Unprocessed)</span>
                           <span className="track-duration">{formatDuration(audioDurations.processed)}</span>
                         </div>
                         <audio 
                           controls 
+                          preload="auto"
                           src={audioUrls?.processed || ''} 
                           key={`processed-${selectedRecording.id}`}
                           onLoadedMetadata={handleAudioLoadedMetadata('processed')}
                         />
                       </div>
                       
-                      {audioUrls?.demucs ? (
+                      {audioUrls?.cascaded ? (
                         <div className="audio-track demucs">
                           <div className="track-header">
                             <span className="track-badge demucs">C</span>
-                            <span className="track-label">Demucs (High Quality)</span>
-                            <span className="track-duration">{formatDuration(audioDurations.demucs)}</span>
+                            <span className="track-label">Processed (Voice Separated)</span>
+                            <span className="track-duration">{formatDuration(audioDurations.cascaded)}</span>
                           </div>
                           <audio 
                             controls 
-                            src={audioUrls.demucs} 
-                            key={`demucs-${selectedRecording.id}`}
-                            onLoadedMetadata={handleAudioLoadedMetadata('demucs')}
+                            preload="auto"
+                            src={audioUrls.cascaded} 
+                            key={`cascaded-${selectedRecording.id}`}
+                            onLoadedMetadata={handleAudioLoadedMetadata('cascaded')}
                           />
                         </div>
-                      ) : selectedRecording.demucs === undefined ? (
+                      ) : selectedRecording.cascaded === undefined ? (
                         <div className="audio-track processing">
                           <div className="track-header">
                             <span className="track-badge demucs">C</span>
-                            <span className="track-label">Demucs (Processing...)</span>
+                            <span className="track-label">Processing...</span>
                           </div>
                           <div className="processing-indicator">
                             <div className="spinner" />
-                            <span>High-quality vocal extraction in progress...</span>
+                            <span>Demucs + speaker separation in progress...</span>
                           </div>
                         </div>
                       ) : null}
+                      
+                      {/* Debug/Intermediate Tracks Section */}
+                      {(audioUrls?.debugMicVocals || audioUrls?.debugRefVocals || audioUrls?.debugSeparated || audioUrls?.debugEnhanced) && (
+                        <div className="debug-tracks-section">
+                          <div className="debug-header">
+                            <span className="debug-title">🔍 Pipeline Debug Tracks</span>
+                          </div>
+                          
+                          {audioUrls?.debugMicVocals && (
+                            <div className="audio-track debug">
+                              <div className="track-header">
+                                <span className="track-badge debug">1</span>
+                                <span className="track-label">Mic Vocals (Demucs)</span>
+                                <span className="track-duration">{formatDuration(audioDurations.debugMicVocals)}</span>
+                              </div>
+                              <audio 
+                                controls 
+                                preload="auto"
+                                src={audioUrls.debugMicVocals} 
+                                key={`debug-mic-${selectedRecording.id}`}
+                                onLoadedMetadata={handleAudioLoadedMetadata('debugMicVocals')}
+                              />
+                            </div>
+                          )}
+                          
+                          {audioUrls?.debugRefVocals && (
+                            <div className="audio-track debug">
+                              <div className="track-header">
+                                <span className="track-badge debug">2</span>
+                                <span className="track-label">Reference Vocals (Singer)</span>
+                                <span className="track-duration">{formatDuration(audioDurations.debugRefVocals)}</span>
+                              </div>
+                              <audio 
+                                controls 
+                                preload="auto"
+                                src={audioUrls.debugRefVocals} 
+                                key={`debug-ref-${selectedRecording.id}`}
+                                onLoadedMetadata={handleAudioLoadedMetadata('debugRefVocals')}
+                              />
+                            </div>
+                          )}
+                          
+                          {audioUrls?.debugSeparated && (
+                            <div className="audio-track debug">
+                              <div className="track-header">
+                                <span className="track-badge debug">3</span>
+                                <span className="track-label">After Separation</span>
+                                <span className="track-duration">{formatDuration(audioDurations.debugSeparated)}</span>
+                              </div>
+                              <audio 
+                                controls 
+                                preload="auto"
+                                src={audioUrls.debugSeparated} 
+                                key={`debug-sep-${selectedRecording.id}`}
+                                onLoadedMetadata={handleAudioLoadedMetadata('debugSeparated')}
+                              />
+                            </div>
+                          )}
+                          
+                          {audioUrls?.debugEnhanced && (
+                            <div className="audio-track debug">
+                              <div className="track-header">
+                                <span className="track-badge debug">4</span>
+                                <span className="track-label">After DeepFilterNet</span>
+                                <span className="track-duration">{formatDuration(audioDurations.debugEnhanced)}</span>
+                              </div>
+                              <audio 
+                                controls 
+                                preload="auto"
+                                src={audioUrls.debugEnhanced} 
+                                key={`debug-enh-${selectedRecording.id}`}
+                                onLoadedMetadata={handleAudioLoadedMetadata('debugEnhanced')}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </>
                 ) : (

@@ -1,7 +1,8 @@
 /**
  * Audio Processor with Deep Learning Echo Cancellation
  * - Live output: DTLN-AEC for real-time processing
- * - Recordings: Saved for SepFormer post-processing (higher quality)
+ * - Recordings: Demucs + Multi-resolution speaker separation for high-quality post-processing
+ *   (removes instruments AND separates your voice from the singer)
  */
 
 import * as naudiodon from 'naudiodon2';
@@ -137,20 +138,13 @@ export class SpeexProcessor extends EventEmitter {
   async start(): Promise<void> {
     if (this.isRunning) return;
 
-    console.log('Starting DTLN Audio Processor...');
+    console.log('Starting Audio Processor (Recording Mode)...');
     console.log(`Sample rate: ${this.config.sampleRate}Hz, Frame size: ${this.config.frameSize}`);
     
     try {
-      // Initialize DTLN first
-      console.log('Initializing DTLN deep learning model...');
-      try {
-        await this.dtln.initialize();
-        this.dtlnReady = true;
-        console.log('DTLN model ready!');
-      } catch (e) {
-        console.warn('DTLN initialization failed, will use passthrough mode:', e);
-        this.dtlnReady = false;
-      }
+      // Skip DTLN initialization - just record
+      this.dtlnReady = false;
+      console.log('DTLN disabled - recording mode only');
       
       await this.startStreams();
       this.isRunning = true;
@@ -158,7 +152,7 @@ export class SpeexProcessor extends EventEmitter {
       // Process frames at 5ms intervals
       this.processTimer = setInterval(() => this.processFrame(), 5);
       
-      console.log('DTLN Audio Processor started successfully');
+      console.log('Audio Processor started successfully (recording mode)');
     } catch (error) {
       console.error('Failed to start processor:', error);
       this.stop();
@@ -167,7 +161,7 @@ export class SpeexProcessor extends EventEmitter {
   }
 
   stop(): void {
-    console.log('Stopping DTLN Audio Processor...');
+    console.log('Stopping Audio Processor...');
     this.isRunning = false;
     
     if (this.processTimer) {
@@ -192,7 +186,7 @@ export class SpeexProcessor extends EventEmitter {
     this.inputBuffer.clear();
     this.referenceBuffer.clear();
     
-    console.log('DTLN Audio Processor stopped');
+    console.log('Audio Processor stopped');
   }
 
   private async startStreams(): Promise<void> {
@@ -317,18 +311,8 @@ export class SpeexProcessor extends EventEmitter {
       const inputRMS = this.calculateRMS(inputFrame);
       const refRMS = this.calculateRMS(referenceFrame);
       
-      // Process through DTLN for live output
-      let output: Float32Array | null;
-      if (this.dtlnReady && this.dtln.isReady()) {
-        output = this.dtln.process(inputFrame, referenceFrame);
-      } else {
-        // Fallback: pass through input if DTLN not ready
-        output = inputFrame;
-      }
-      
-      if (!output) {
-        output = new Float32Array(frameSize);
-      }
+      // Just pass through input (no DTLN processing)
+      let output: Float32Array = inputFrame;
       
       // Apply output gain
       for (let i = 0; i < output.length; i++) {
@@ -368,8 +352,7 @@ export class SpeexProcessor extends EventEmitter {
     // Log every ~1 second
     this.levelLogCounter += framesProcessed;
     if (this.levelLogCounter >= 100) {
-      const dtlnStatus = this.dtlnReady && this.dtln.isReady() ? 'DTLN active' : 'DTLN initializing';
-      console.log(`[${dtlnStatus}] Frames: ${framesProcessed} | Buffers: in=${this.inputBuffer.getAvailable()}, ref=${this.referenceBuffer.getAvailable()}`);
+      console.log(`[Recording Mode] Frames: ${framesProcessed} | Buffers: in=${this.inputBuffer.getAvailable()}, ref=${this.referenceBuffer.getAvailable()}`);
       this.levelLogCounter = 0;
     }
   }
@@ -425,9 +408,9 @@ export class SpeexProcessor extends EventEmitter {
     console.log(`  DTLN output (live): ${processedOutputPath}`);
     console.log(`  Reference: ${referencePath}`);
     
-    // Run cascaded processing (DTLN-AEC → Spectral) for high-quality output
+    // Run advanced processing (Demucs + Multi-resolution separation) for high-quality output
     const cascadedOutputPath = path.join(recordingsDir, `cascaded_output_${timestamp}.wav`);
-    this.runCascadedProcessing(rawInputPath, referencePath, cascadedOutputPath);
+    this.runAdvancedProcessing(rawInputPath, referencePath, cascadedOutputPath);
     
     this.rawInputRecording = [];
     this.processedOutputRecording = [];
@@ -443,24 +426,22 @@ export class SpeexProcessor extends EventEmitter {
   }
   
   /**
-   * Run cascaded processing in background (DTLN-AEC → Spectral Cleanup)
-   * This is the best performing approach for reference-based echo removal
+   * Run advanced processing in background (Demucs + Multi-resolution speaker separation)
+   * This removes instruments AND separates your voice from the singer
    */
-  private runCascadedProcessing(micPath: string, refPath: string, outputPath: string): void {
+  private runAdvancedProcessing(micPath: string, refPath: string, outputPath: string): void {
     const scriptsDir = path.join(process.cwd(), 'scripts');
-    const cascadedScript = path.join(scriptsDir, 'cascaded_process.py');
+    const advancedScript = path.join(scriptsDir, 'advanced_process.py');
     
     // Check if script exists
-    if (!fs.existsSync(cascadedScript)) {
-      console.warn('[Cascaded] Script not found, skipping post-processing');
+    if (!fs.existsSync(advancedScript)) {
+      console.warn('[Advanced] Script not found, skipping post-processing');
       return;
     }
     
-    // Try to find Python with dependencies
-    const dtlnVenv = path.join(process.cwd(), 'DTRL-AEC', 'DTLN-aec', 'venv', 'bin', 'python');
+    // Use system Python (anaconda) which has torch/demucs installed
     const pythonPaths = [
-      dtlnVenv,
-      path.join(scriptsDir, 'venv', 'bin', 'python'),
+      '/opt/anaconda3/bin/python',
       'python3',
       'python'
     ];
@@ -473,42 +454,43 @@ export class SpeexProcessor extends EventEmitter {
       }
     }
     
-    console.log(`[Cascaded] Starting DTLN-AEC → Spectral processing...`);
-    console.log(`[Cascaded] Mic: ${micPath}`);
-    console.log(`[Cascaded] Ref: ${refPath}`);
-    console.log(`[Cascaded] Output: ${outputPath}`);
+    console.log(`[Advanced] Starting Demucs + Multi-resolution processing...`);
+    console.log(`[Advanced] Mic: ${micPath}`);
+    console.log(`[Advanced] Ref: ${refPath}`);
+    console.log(`[Advanced] Output: ${outputPath}`);
     
-    const cascadedProcess = spawn(pythonPath, [
-      cascadedScript,
+    const advancedProcess = spawn(pythonPath, [
+      advancedScript,
       '--mic', micPath,
       '--ref', refPath,
-      '--output', outputPath
+      '--output', outputPath,
+      '--debug'  // Save intermediate tracks for debugging
     ], {
       cwd: scriptsDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true
     });
     
-    cascadedProcess.stdout?.on('data', (data) => {
-      console.log(`[Cascaded] ${data.toString().trim()}`);
+    advancedProcess.stdout?.on('data', (data) => {
+      console.log(`[Advanced] ${data.toString().trim()}`);
     });
     
-    cascadedProcess.stderr?.on('data', (data) => {
-      console.error(`[Cascaded Error] ${data.toString().trim()}`);
+    advancedProcess.stderr?.on('data', (data) => {
+      console.error(`[Advanced Error] ${data.toString().trim()}`);
     });
     
-    cascadedProcess.on('exit', (code) => {
+    advancedProcess.on('exit', (code) => {
       if (code === 0) {
-        console.log(`[Cascaded] Processing complete: ${outputPath}`);
+        console.log(`[Advanced] Processing complete: ${outputPath}`);
         this.emit('cascaded-complete', { output: outputPath });
       } else {
-        console.error(`[Cascaded] Processing failed with code ${code}`);
+        console.error(`[Advanced] Processing failed with code ${code}`);
         this.emit('cascaded-error', { code });
       }
     });
     
     // Don't wait for the process
-    cascadedProcess.unref();
+    advancedProcess.unref();
   }
 
   private async saveWavFile(filePath: string, chunks: Float32Array[]): Promise<void> {

@@ -483,6 +483,21 @@ body {
   min-width: 0;
 }
 
+.recording-duration {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--gray-100);
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-right: 4px;
+}
+
+.recording-item.selected .recording-duration {
+  background: var(--purple);
+  color: var(--white);
+}
+
 .recording-date {
   display: block;
   font-size: 14px;
@@ -601,6 +616,40 @@ body {
 
 .track-badge.demucs {
   background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+}
+
+.track-badge.debug {
+  background: linear-gradient(135deg, #64748b, #475569);
+  font-size: 11px;
+}
+
+/* Debug Tracks Section */
+.debug-tracks-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--border);
+}
+
+.debug-header {
+  margin-bottom: 16px;
+}
+
+.debug-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.audio-track.debug {
+  background: var(--gray-50);
+  border: 1px dashed var(--gray-300);
+}
+
+.audio-track.debug .track-label {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .track-label {

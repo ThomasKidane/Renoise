@@ -12,7 +12,12 @@ interface Recording {
   rawInput: string;
   processed: string;  // DTLN output (live)
   reference: string;
-  demucs?: string; // Demucs output (high quality vocal extraction)
+  cascaded?: string; // Advanced processed output (Demucs + multi-resolution)
+  // Debug/intermediate files
+  debugMicVocals?: string;    // Vocals extracted from mic (Demucs)
+  debugRefVocals?: string;    // Vocals extracted from reference (singer)
+  debugSeparated?: string;    // After speaker separation
+  debugEnhanced?: string;     // After DeepFilterNet
 }
 
 function getRecordingsDir(): string {
@@ -21,11 +26,14 @@ function getRecordingsDir(): string {
 
 function listRecordings(): Recording[] {
   const recordingsDir = getRecordingsDir();
+  const debugDir = path.join(recordingsDir, 'debug');
+  
   if (!fs.existsSync(recordingsDir)) {
     return [];
   }
 
   const files = fs.readdirSync(recordingsDir);
+  const debugFiles = fs.existsSync(debugDir) ? fs.readdirSync(debugDir) : [];
   const rawInputFiles = files.filter(f => f.startsWith('raw_input_') && f.endsWith('.wav'));
   
   const recordings: Recording[] = [];
@@ -34,7 +42,13 @@ function listRecordings(): Recording[] {
     const timestamp = rawFile.replace('raw_input_', '').replace('.wav', '');
     const processedFile = `dtln_output_${timestamp}.wav`;
     const referenceFile = `reference_${timestamp}.wav`;
-    const demucsFile = `demucs_output_${timestamp}.wav`;
+    const cascadedFile = `cascaded_output_${timestamp}.wav`;
+    
+    // Debug files use a different naming convention
+    const debugMicVocals = `${timestamp}_1_mic_vocals.wav`;
+    const debugRefVocals = `${timestamp}_2_ref_vocals.wav`;
+    const debugSeparated = `${timestamp}_3_separated.wav`;
+    const debugEnhanced = `${timestamp}_4_enhanced.wav`;
     
     if (files.includes(processedFile)) {
       // Parse the timestamp for display
@@ -47,7 +61,12 @@ function listRecordings(): Recording[] {
         rawInput: path.join(recordingsDir, rawFile),
         processed: path.join(recordingsDir, processedFile),
         reference: files.includes(referenceFile) ? path.join(recordingsDir, referenceFile) : '',
-        demucs: files.includes(demucsFile) ? path.join(recordingsDir, demucsFile) : undefined
+        cascaded: files.includes(cascadedFile) ? path.join(recordingsDir, cascadedFile) : undefined,
+        // Debug files
+        debugMicVocals: debugFiles.includes(debugMicVocals) ? path.join(debugDir, debugMicVocals) : undefined,
+        debugRefVocals: debugFiles.includes(debugRefVocals) ? path.join(debugDir, debugRefVocals) : undefined,
+        debugSeparated: debugFiles.includes(debugSeparated) ? path.join(debugDir, debugSeparated) : undefined,
+        debugEnhanced: debugFiles.includes(debugEnhanced) ? path.join(debugDir, debugEnhanced) : undefined
       });
     }
   }
@@ -60,16 +79,31 @@ function listRecordings(): Recording[] {
 
 function deleteRecording(id: string): boolean {
   const recordingsDir = getRecordingsDir();
+  const debugDir = path.join(recordingsDir, 'debug');
+  
   const filesToDelete = [
     `raw_input_${id}.wav`,
     `dtln_output_${id}.wav`,
     `reference_${id}.wav`,
-    `demucs_output_${id}.wav`,
-    `sepformer_output_${id}.wav`  // Also clean up old sepformer files
+    `cascaded_output_${id}.wav`
+  ];
+  
+  const debugFilesToDelete = [
+    `${id}_1_mic_vocals.wav`,
+    `${id}_2_ref_vocals.wav`,
+    `${id}_3_separated.wav`,
+    `${id}_4_enhanced.wav`
   ];
   
   for (const file of filesToDelete) {
     const filePath = path.join(recordingsDir, file);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+  
+  for (const file of debugFilesToDelete) {
+    const filePath = path.join(debugDir, file);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
